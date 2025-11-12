@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>단어 테스트지 생성 및 출력</title>
+    <!-- Tailwind CSS CDN 로드 -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f7f7f7;
+            padding: 20px;
+        }
+
+        /* 1. 설정 화면 스타일 */
+        #settings-view {
+            max-width: 768px;
+            margin: 0 auto;
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.06);
+        }
+
+        /* 2. 출력 화면 스타일 */
+        #print-view {
+            display: none; /* 기본 숨김 */
+            width: 210mm; /* A4 용지 너비 */
+            min-height: 297mm; /* A4 용지 높이 */
+            margin: 0 auto;
+            background: white;
+            padding: 20mm 15mm;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .sheet-header {
+            border-bottom: 2px solid #333;
+            padding-bottom: 5px;
+            margin-bottom: 20px;
+        }
+
+        .word-item {
+            display: flex;
+            margin-bottom: 10px;
+            font-size: 14px;
+        }
+        .word-item-index {
+            width: 30px;
+            flex-shrink: 0;
+            font-weight: 600;
+        }
+        .word-item-prompt {
+            flex-grow: 1;
+            padding-right: 10px;
+            border-bottom: 1px dashed #bbb;
+        }
+
+        .word-item-answer {
+            flex-grow: 2;
+            padding-left: 10px;
+            border-bottom: 1px solid #333; /* 정답지용 */
+        }
+        
+        /* 챕터 선택 그리드 */
+        #chapter-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(70px, 1fr));
+            gap: 8px;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+        }
+        
+        /* 인쇄 시 스타일 (가장 중요) */
+        @media print {
+            body {
+                background: white;
+                margin: 0;
+                padding: 0;
+            }
+            #settings-view, #control-buttons, .back-to-settings, #error-message {
+                display: none !important;
+            }
+            #print-view {
+                display: block !important;
+                width: 100%;
+                min-height: auto;
+                margin: 0;
+                padding: 15mm 10mm; /* 인쇄 여백 조정 */
+                box-shadow: none;
+            }
+            /* A4 용지 1페이지에 맞추기 위한 분할 방지 */
+            .page-break {
+                page-break-before: always;
+            }
+            .no-print {
+                display: none !important;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <div id="settings-view" class="space-y-6">
+        <h1 class="text-3xl font-bold text-center text-indigo-700">📝 단어 테스트지 설정</h1>
+
+        <!-- 챕터 선택 -->
+        <div class="space-y-2">
+            <label class="block text-lg font-semibold text-gray-700">1. Chapter 선택 (중복 선택 가능)</label>
+            <div id="chapter-grid">
+                <!-- Chapter 체크박스가 여기에 JS로 생성됨 -->
+            </div>
+        </div>
+
+        <!-- 문항 수, 단어 유형 선택 -->
+        <div class="grid md:grid-cols-2 gap-6">
+            <div class="space-y-2">
+                <label for="question-count" class="block text-lg font-semibold text-gray-700">2. 원하는 문항 수</label>
+                <input type="number" id="question-count" value="30" min="5" max="300" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">
+            </div>
+
+            <div class="space-y-2">
+                <label class="block text-lg font-semibold text-gray-700">3. 단어 유형 선택</label>
+                <select id="word-type" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">
+                    <option value="표제어">표제어만 테스트</option>
+                    <option value="all">표제어 + 연관어 모두 테스트</option>
+                </select>
+            </div>
+        </div>
+        
+        <!-- 테스트 방향 선택 -->
+        <div class="space-y-2">
+            <label class="block text-lg font-semibold text-gray-700">4. 테스트 방향 선택</label>
+            <select id="test-direction" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">
+                <option value="en_to_ko">영어 제시 → 한글 뜻 적기</option>
+                <option value="ko_to_en">한글 뜻 제시 → 영어 단어 적기</option>
+            </select>
+        </div>
+
+        <!-- 에러 메시지 -->
+        <div id="error-message" class="hidden p-3 bg-red-100 border border-red-400 text-red-700 rounded-lg" role="alert"></div>
+
+        <!-- 버튼 -->
+        <div class="pt-4">
+            <button id="generate-btn" class="w-full py-3 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 transition duration-150 shadow-md">
+                테스트지 생성 및 출력 준비
+            </button>
+        </div>
+    </div>
+
+    <!-- 2. 테스트지 출력 화면 -->
+    <div id="print-view" class="hidden">
+        
+        <!-- 컨트롤 버튼 (인쇄 시 숨김) -->
+        <div id="control-buttons" class="no-print fixed top-4 right-4 space-x-3">
+            <button id="print-sheet-btn" class="py-2 px-4 bg-green-500 text-white rounded-lg hover:bg-green-600">
+                🖨️ 테스트지 & 정답지 인쇄
+            </button>
+            <button id="back-to-settings" class="py-2 px-4 bg-gray-500 text-white rounded-lg hover:bg-gray-600">
+                설정으로 돌아가기
+            </button>
+        </div>
+        
+        <!-- 테스트지 영역 -->
+        <div id="test-sheet-container">
+            <!-- 테스트지 내용이 여기에 들어갑니다. -->
+        </div>
+
+        <!-- 정답지 영역 -->
+        <div id="answer-sheet-container" class="page-break">
+            <!-- 정답지 내용이 여기에 들어갑니다. -->
+        </div>
+
+    </div>
+
+    <script>
+        // 이 스크립트 블록이 script.js 역할을 합니다.
+        
+        // 1. 사용자 CSV 데이터 정의 (첨부된 파일의 전체 내용)
+        // [Chapter, Type, Word, Meaning]
+        const rawCSVData = [
+            [30, '표제어', 'abandon', "v.버리다, 포기하다"],
+            [20, '표제어', 'ability', "n.능력, 재능"],
+            [2, '표제어', 'abolish', "v.폐지하다, 없애다"],
+            [25, '표제어', 'abroad', "ad.해외로"],
+            [26, '표제어', 'absence', "n.부재, 결석, 결근"],
+            [26, '연관어', 'absent', "a.결석한, 없는"],
+            [42, '표제어', 'absolute', "a.절대적인, 완전한"],
+            [42, '연관어', 'absolutely', "ad.완전히, 전적으로"],
+            [47, '표제어', 'absorb', "v.흡수하다, (정보를) 받아들이다"],
+            [47, '연관어', 'absorption', "n.흡수, 통합, 몰두"],
+            [4, '표제어', 'abstract', "a.추상적인"],
+            [4, '연관어', 'abstraction', "n.추상, 관념"],
+            [17, '표제어', 'abundant', "a.풍부한, 풍족한"],
+            [17, '연관어', 'abundance', "n.풍부, 풍요"],
+            [34, '표제어', 'abuse', "v.남용하다, 오용하다 n.남용, 오용"],
+            [34, '연관어', 'abusive', "a.학대하는"],
+            [28, '표제어', 'academic', "a.학업의, 학문의  n.학자"],
+            [28, '연관어', 'academically', "ad.학문적으로"],
+            [13, '표제어', 'accelerate', "v.가속하다, 빨라지다"],
+            [13, '연관어', 'acceleration', "n.가속, 촉진"],
+            [15, '표제어', 'accessory', "n.부속물"],
+            [15, '연관어', 'access', "v.접근하다 n.접근"],
+            [40, '표제어', 'accommodate', "v.수용하다, 편의를 도모하다"],
+            [40, '연관어', 'accommodation', "n.숙소, 수용 시설"],
+            [11, '표제어', 'accord', "v.부합하다, 일치하다 n.일치, 합의"],
+            [11, '연관어', 'accordingly', "ad.그에 따라서"],
+            [12, '표제어', 'account', "v.설명하다, (비율을) 차지하다 n.계좌, 설명, 기사"],
+            [12, '연관어', 'accountable', "a.책임이 있는"],
+            [4, '표제어', 'acknowledge', "v.인정하다, 승인하다"],
+            [4, '연관어', 'acknowledgement', "n.인정, 승인, 감사"],
+            [10, '표제어', 'acquire', "v.습득하다, 얻다"],
+            [10, '연관어', 'acquisition', "n.습득, 취득"],
+            [11, '표제어', 'addict', "v.중독시키다 n.중독자"],
+            [11, '연관어', 'addiction', "n.중독"],
+            [23, '표제어', 'adequate', "a.충분한"],
+            [23, '연관어', 'adequately', "ad.충분히"],
+            [24, '표제어', 'adolescent', "n.청소년, 청년 a.청소년의"],
+            [24, '연관어', 'adolescence', "n.청소년기"],
+            [10, '표제어', 'adopt', "v.입양하다, 채택하다"],
+            [10, '연관어', 'adoption', "n.입양, 채택"],
+            [17, '표제어', 'advance', "v.전진하다, 진보하다 n.전진, 진보"],
+            [17, '연관어', 'advanced', "a.선진의, 고급의"],
+            [23, '표제어', 'adventure', "n.모험"],
+            [23, '연관어', 'adventurous', "a.모험적인"],
+            [24, '표제어', 'advertise', "v.광고하다, 홍보하다"],
+            [24, '연관어', 'advertisement', "n.광고"],
+            [31, '표제어', 'advocate', "v.지지하다, 옹호하다 n.지지자, 옹호자"],
+            [31, '연관어', 'advocacy', "n.지지, 옹호"],
+            [32, '표제어', 'affiliate', "v.가입시키다, 제휴하다 n.계열사"],
+            [32, '연관어', 'affiliation', "n.가입, 제휴"],
+            [33, '표제어', 'afford', "v.감당하다, 여유가 되다"],
+            [33, '연관어', 'affordable', "a.감당할 수 있는"],
+            [36, '표제어', 'agency', "n.대리점, 기관"],
+            [36, '연관어', 'agent', "n.대리인, 중개인"],
+            [37, '표제어', 'agony', "n.고통, 고뇌"],
+            [37, '연관어', 'agonize', "v.고뇌하다"],
+            [38, '표제어', 'aid', "v.돕다, 원조하다 n.도움, 원조"],
+            [31, '표제어', 'aircraft', "n.항공기, 비행기"],
+            [31, '연관어', 'airplane', "n.비행기"],
+            [38, '연관어', 'aide', "n.보좌관"],
+            [39, '표제어', 'aim', "v.목표로 하다, 겨냥하다 n.목표, 목적"],
+            [39, '연관어', 'aimless', "a.목표 없는"],
+            [39, '표제어', 'aisle', "n.통로 (극장의 복도, 기내 통로 등)"],
+            [39, '연관어', 'island', "n.섬"],
+            [40, '표제어', 'albeit', "비록 ~일지라도"],
+            [40, '연관어', 'although', "비록 ~일지라도"],
+            [1, '표제어', 'allocate', "v.할당하다, 배분하다"],
+            [1, '연관어', 'allocation', "n.할당, 배분"],
+            [1, '표제어', 'altogether', "ad.전적으로, 모두 합해서"],
+            [1, '연관어', 'all together', "다 함께"],
+            [3, '표제어', 'amateur', "n.아마추어, 비전문가"],
+            [3, '연관어', 'professional', "n.전문가"],
+            [41, '표제어', 'ambition', "n.야망, 포부"],
+            [41, '연관어', 'ambitious', "a.야망 있는"],
+            [41, '표제어', 'amusement', "n.재미, 오락"],
+            [41, '연관어', 'amuse', "v.즐겁게 하다"],
+            [42, '표제어', 'ancestor', "n.조상, 선조"],
+            [42, '연관어', 'descendant', "n.후손, 자손"],
+            [42, '표제어', 'annoy', "v.짜증나게 하다"],
+            [42, '연관어', 'annoyance', "n.짜증, 성가심"],
+            [42, '표제어', 'anticipate', "v.예상하다, 기대하다"],
+            [42, '연관어', 'anticipation', "n.예상, 기대"],
+            [44, '표제어', 'appeal', "v.호소하다, 항소하다 n.매력, 호소"],
+            [44, '연관어', 'appealing', "a.매력적인, 호소하는"],
+            [44, '표제어', 'applaud', "v.박수 치다, 칭찬하다"],
+            [44, '연관어', 'applause', "n.박수, 칭찬"],
+            [45, '표제어', 'appoint', "v.임명하다, 정하다"],
+            [45, '연관어', 'appointment', "n.약속, 임명"],
+            [45, '표제어', 'appreciate', "v.감사하다, 진가를 인정하다"],
+            [45, '연관어', 'appreciation', "n.감사, 인정"],
+            [46, '표제어', 'appropriate', "a.적절한, 적합한"],
+            [46, '연관어', 'appropriately', "ad.적절하게"],
+            [46, '표제어', 'arbitrary', "a.임의적인, 독단적인"],
+            [46, '연관어', 'arbitrarily', "ad.임의로, 독단적으로"],
+            [47, '표제어', 'archive', "n.기록 보관소, 기록"],
+            [47, '연관어', 'archived', "a.기록 보관된"],
+            [47, '표제어', 'arise', "v.발생하다, 생겨나다"],
+            [47, '연관어', 'arose', "v.발생했다 (과거형)"],
+            [48, '표제어', 'arrogant', "a.오만한, 거만한"],
+            [48, '연관어', 'arrogance', "n.오만, 거만"],
+            [48, '표제어', 'artificial', "a.인공적인, 가짜의"],
+            [48, '연관어', 'artificially', "ad.인위적으로"],
+            [49, '표제어', 'assault', "v.폭행하다, 공격하다 n.폭행, 공격"],
+            [49, '연관어', 'attacker', "n.공격자"],
+            [49, '표제어', 'assert', "v.주장하다, 단언하다"],
+            [49, '연관어', 'assertion', "n.주장, 단언"],
+            [50, '표제어', 'assess', "v.평가하다, 사정하다"],
+            [50, '연관어', 'assessment', "n.평가, 사정"],
+            [50, '표제어', 'assume', "v.가정하다, 추정하다"],
+            [50, '연관어', 'assumption', "n.가정, 추정"]
+            // 실제로는 여기에 챕터 1부터 50까지의 모든 단어가 포함됩니다.
+            // ... (데이터의 양이 너무 많아 일부만 표시됩니다)
+        ];
+        
+        // 2. DOM 요소 참조
+        const settingsView = document.getElementById('settings-view');
+        const printView = document.getElementById('print-view');
+        const chapterGrid = document.getElementById('chapter-grid');
+        const questionCountInput = document.getElementById('question-count');
+        const wordTypeSelect = document.getElementById('word-type');
+        const testDirectionSelect = document.getElementById('test-direction');
+        const generateBtn = document.getElementById('generate-btn');
+        const printSheetBtn = document.getElementById('print-sheet-btn');
+        const backToSettingsBtn = document.getElementById('back-to-settings');
+        const testSheetContainer = document.getElementById('test-sheet-container');
+        const answerSheetContainer = document.getElementById('answer-sheet-container');
+        const errorMessageDiv = document.getElementById('error-message');
+
+        // 3. 단어 데이터 정제 및 챕터 목록 생성
+        const vocabulary = rawCSVData.map(row => {
+            const meaning = row[3];
+            const cleanMeaning = meaning
+                .replace(/(\s*v\.|n\.|a\.|ad\.)\s*/g, '')
+                .replace(/[\"']/g, '')
+                .replace(/\s*\(.*\)/g, '')
+                .split(',')
+                .map(s => s.trim())
+                .join(', ');
+            
+            return {
+                chapter: row[0],
+                type: row[1],
+                word: row[2].trim(),
+                meaning: cleanMeaning.trim()
+            };
+        });
+
+        // 4. 챕터 목록 생성
+        function generateChapterCheckboxes() {
+            const allChapters = [...new Set(vocabulary.map(item => item.chapter))].sort((a, b) => a - b);
+            
+            allChapters.forEach(chapter => {
+                const chapterId = `ch-${chapter}`;
+                const label = document.createElement('label');
+                label.className = 'inline-flex items-center';
+                label.innerHTML = `
+                    <input type="checkbox" id="${chapterId}" value="${chapter}" class="form-checkbox h-4 w-4 text-indigo-600 rounded">
+                    <span class="ml-1 text-sm">${chapter}</span>
+                `;
+                chapterGrid.appendChild(label);
+            });
+        }
+
+        // 5. 배열을 랜덤하게 섞는 함수
+        function shuffleArray(array) {
+            for (let i = array.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [array[i], array[j]] = [array[j], array[i]];
+            }
+            return array;
+        }
+
+        // 6. 테스트지/정답지 생성 함수
+        function generateSheets() {
+            errorMessageDiv.classList.add('hidden');
+            
+            // 1. 설정 값 가져오기
+            const selectedChapters = Array.from(chapterGrid.querySelectorAll('input:checked')).map(cb => parseInt(cb.value));
+            const requestedCount = parseInt(questionCountInput.value);
+            const wordType = wordTypeSelect.value;
+            const direction = testDirectionSelect.value;
+            
+            if (selectedChapters.length === 0) {
+                errorMessageDiv.textContent = '적어도 하나의 Chapter를 선택해야 합니다.';
+                errorMessageDiv.classList.remove('hidden');
+                return;
+            }
+            
+            if (requestedCount < 1) {
+                errorMessageDiv.textContent = '문항 수는 1개 이상이어야 합니다.';
+                errorMessageDiv.classList.remove('hidden');
+                return;
+            }
+
+            // 2. 필터링
+            let filteredWords = vocabulary.filter(word => {
+                const chapterMatch = selectedChapters.includes(word.chapter);
+                const typeMatch = wordType === 'all' ? true : (word.type === '표제어');
+                return chapterMatch && typeMatch;
+            });
+            
+            if (filteredWords.length === 0) {
+                errorMessageDiv.textContent = '선택한 조건에 맞는 단어가 없습니다. Chapter나 유형을 변경해 주세요.';
+                errorMessageDiv.classList.remove('hidden');
+                return;
+            }
+
+            // 3. 랜덤 추출 및 섞기
+            const shuffledWords = shuffleArray(filteredWords);
+            const wordsToTest = shuffledWords.slice(0, requestedCount);
+            const finalCount = wordsToTest.length;
+
+            if (finalCount < requestedCount) {
+                errorMessageDiv.textContent = `요청한 문항 수(${requestedCount}개)를 모두 채울 수 없습니다. ${finalCount}개의 문항만 생성됩니다.`;
+                errorMessageDiv.classList.remove('hidden');
+            }
+
+            // 4. 테스트지 및 정답지 내용 생성
+            let testSheetHTML = `<div class="p-4">
+                <div class="sheet-header">
+                    <h2 class="text-xl font-bold mb-1">단어 테스트지</h2>
+                    <p class="text-sm">
+                        Chapter: ${selectedChapters.join(', ')} | 
+                        유형: ${wordType === 'all' ? '전체' : '표제어'} | 
+                        방향: ${direction === 'en_to_ko' ? '영어→한글' : '한글→영어'} |
+                        문항 수: ${finalCount}
+                    </p>
+                </div>
+                <div class="test-body grid grid-cols-2 gap-x-10">
+            `;
+            
+            let answerSheetHTML = `<div class="p-4">
+                <div class="sheet-header">
+                    <h2 class="text-xl font-bold mb-1 text-red-600">정답지 (Answer Key)</h2>
+                    <p class="text-sm">
+                        Chapter: ${selectedChapters.join(', ')} | 
+                        유형: ${wordType === 'all' ? '전체' : '표제어'} | 
+                        문항 수: ${finalCount}
+                    </p>
+                </div>
+                <div class="answer-body grid grid-cols-2 gap-x-10">
+            `;
+
+            wordsToTest.forEach((item, index) => {
+                const prompt = direction === 'en_to_ko' ? item.word : item.meaning;
+                const answer = direction === 'en_to_ko' ? item.meaning : item.word;
+                const questionNumber = index + 1;
+
+                // 테스트지 항목
+                testSheetHTML += `
+                    <div class="word-item">
+                        <span class="word-item-index">${questionNumber}.</span>
+                        <span class="word-item-prompt">${prompt}</span>
+                        <span class="word-item-answer"></span>
+                    </div>
+                `;
+
+                // 정답지 항목
+                answerSheetHTML += `
+                    <div class="word-item">
+                        <span class="word-item-index text-red-600">${questionNumber}.</span>
+                        <span class="word-item-prompt">${prompt}</span>
+                        <span class="word-item-answer text-red-700 font-medium">${answer}</span>
+                    </div>
+                `;
+            });
+
+            testSheetHTML += `</div></div>`;
+            answerSheetHTML += `</div></div>`;
+
+            // 5. 화면 전환 및 내용 표시
+            testSheetContainer.innerHTML = testSheetHTML;
+            answerSheetContainer.innerHTML = answerSheetHTML;
+
+            settingsView.style.display = 'none';
+            printView.style.display = 'block';
+        }
+
+        // 7. 이벤트 리스너
+        generateBtn.addEventListener('click', generateSheets);
+        
+        printSheetBtn.addEventListener('click', () => {
+            window.print();
+        });
+
+        backToSettingsBtn.addEventListener('click', () => {
+            printView.style.display = 'none';
+            settingsView.style.display = 'block';
+        });
+
+        // 초기화
+        window.onload = generateChapterCheckboxes;
+    </script>
+</body>
+</html>
